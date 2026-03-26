@@ -34,3 +34,13 @@ Thumbs.db
 dist/
 build/
 coverage/
+
+# Arquivos locais de análise
+a.py
+asdfg.txt
+parte1.txt
+parte2.txt
+parte3.txt
+parte4.txt
+parte5.txt
+project-scan-lite.md
