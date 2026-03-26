@@ -1,0 +1,98 @@
+# PromoRadar Telegram — Docker Compose
+# Uso: docker compose up -d
+
+services:
+  # ── PostgreSQL ──
+  postgres:
+    image: postgres:16-alpine
+    container_name: promoradar-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-promoradar}
+      POSTGRES_USER: ${DB_USER:-promoradar}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-promoradar}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./services/collector/src/db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U promoradar"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Redis (cache + filas) ──
+  redis:
+    image: redis:7-alpine
+    container_name: promoradar-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Collector Service ──
+  collector:
+    build:
+      context: ./services/collector
+      target: base
+    container_name: promoradar-collector
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./sessions:/app/sessions  # Persiste session do Telegram
+    stdin_open: true               # Necessário para auth interativa do Telethon
+    tty: true
+
+  # ── Parser Service ──
+  parser:
+    build:
+      context: ./services/parser
+      target: base
+    container_name: promoradar-parser
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── API (FastAPI) ──
+  api:
+    build:
+      context: ./services/api
+      target: base
+    container_name: promoradar-api
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Frontend (Next.js) ──
+  frontend:
+    build:
+      context: ./services/frontend
+    container_name: promoradar-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:8000
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
